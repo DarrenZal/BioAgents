@@ -98,85 +98,64 @@ SELECT DISTINCT ?headline ?articleBody
     }
     LIMIT 10`;
 
-export const sparqlExamples = [
-    `
-    SELECT DISTINCT ?headline ?articleBody
-    WHERE {
-      ?s a <http://schema.org/SocialMediaPosting> .
-      ?s <http://schema.org/headline> ?headline .
-      ?s <http://schema.org/articleBody> ?articleBody .
-
-      OPTIONAL {
-        ?s <http://schema.org/keywords> ?keyword .
-        ?keyword <http://schema.org/name> ?keywordName .
-      }
-
-      OPTIONAL {
-        ?s <http://schema.org/about> ?about .
-        ?about <http://schema.org/name> ?aboutName .
-      }
-
-      FILTER(
-        CONTAINS(LCASE(?headline), "example_keyword") ||
-        (BOUND(?keywordName) && CONTAINS(LCASE(?keywordName), "example_keyword")) ||
-        (BOUND(?aboutName) && CONTAINS(LCASE(?aboutName), "example_keyword"))
-      )
-    }
-    LIMIT 10
-    `,
-    `
-    SELECT DISTINCT ?headline ?articleBody
-    WHERE {
-      ?s a <http://schema.org/SocialMediaPosting> .
-      ?s <http://schema.org/headline> ?headline .
-      ?s <http://schema.org/articleBody> ?articleBody .
-      FILTER(
-        CONTAINS(LCASE(?headline), "example_headline_word1") ||
-        CONTAINS(LCASE(?headline), "example_headline_word2")
-      )
-    }
-    `,
-    `
-    SELECT DISTINCT ?headline ?articleBody ?keywordName
-    WHERE {
-      ?s a <http://schema.org/SocialMediaPosting> .
-      ?s <http://schema.org/headline> ?headline .
-      ?s <http://schema.org/articleBody> ?articleBody .
-      ?s <http://schema.org/keywords> ?keyword .
-      ?keyword <http://schema.org/name> ?keywordName .
-      FILTER(
-        CONTAINS(LCASE(?keywordName), "example_keyword1") ||
-        CONTAINS(LCASE(?keywordName), "example_keyword2")
-      )
-    }
-    `,
-    `
-    SELECT DISTINCT ?headline ?articleBody ?aboutName
-    WHERE {
-      ?s a <http://schema.org/SocialMediaPosting> .
-      ?s <http://schema.org/headline> ?headline .
-      ?s <http://schema.org/articleBody> ?articleBody .
-      ?s <http://schema.org/about> ?about .
-      ?about <http://schema.org/name> ?aboutName .
-      FILTER(
-        CONTAINS(LCASE(?aboutName), "example_about1") ||
-        CONTAINS(LCASE(?aboutName), "example_about2")
-      )
-    }
-    `,
-];
-
-export const generalSparqlQuery = `
-    SELECT DISTINCT ?headline ?articleBody
-    WHERE {
-      ?s a <http://schema.org/SocialMediaPosting> .
-      ?s <http://schema.org/headline> ?headline .
-      ?s <http://schema.org/articleBody> ?articleBody .
-    }
-    LIMIT 10
-  `;
-
+// DKG Explorer links for different environments
 export const DKG_EXPLORER_LINKS = {
-    testnet: "https://dkg-testnet.origintrail.io/explore?ual=",
-    mainnet: "https://dkg.origintrail.io/explore?ual=",
+  devnet: "https://dkg-explorer.origintrail.io",
+  testnet: "https://dkg-explorer-testnet.origintrail.io",
+  mainnet: "https://dkg-explorer-mainnet.origintrail.io"
+};
+
+// Scientific paper template
+export const scientificPaperTemplate = {
+  "@context": {
+    "dcterms": "http://purl.org/dc/terms/",
+    "bibo": "http://purl.org/ontology/bibo/",
+    "fabio": "http://purl.org/spar/fabio/",
+    "cito": "http://purl.org/spar/cito/",
+    "foaf": "http://xmlns.com/foaf/0.1/",
+    "schema": "http://schema.org/",
+    "go": "http://purl.obolibrary.org/obo/GO_",
+    "doid": "http://purl.org/obo/DOID_",
+    "chebi": "http://purl.org/obo/CHEBI_",
+    "atc": "http://purl.org/obo/ATC_"
+  },
+  "@type": "fabio:ResearchPaper",
+  "dcterms:title": "<title of the paper>",
+  "dcterms:creator": [
+    {
+      "@type": "foaf:Person",
+      "foaf:name": "<author name>"
+    }
+  ],
+  "dcterms:abstract": "<abstract of the paper>",
+  "schema:datePublished": "YYYY-MM-DD",
+  "fabio:hasPart": [
+    {
+      "@type": "doco:Section",
+      "dcterms:title": "Introduction",
+      "rdf:value": "<content of introduction>"
+    },
+    {
+      "@type": "doco:Section",
+      "dcterms:title": "Methods",
+      "rdf:value": "<content of methods>"
+    },
+    {
+      "@type": "doco:Section",
+      "dcterms:title": "Results",
+      "rdf:value": "<content of results>"
+    },
+    {
+      "@type": "doco:Section",
+      "dcterms:title": "Discussion",
+      "rdf:value": "<content of discussion>"
+    }
+  ],
+  "cito:cites": [
+    {
+      "@type": "fabio:JournalArticle",
+      "dcterms:title": "<title of cited paper>",
+      "dcterms:identifier": "<DOI of cited paper>"
+    }
+  ]
 };

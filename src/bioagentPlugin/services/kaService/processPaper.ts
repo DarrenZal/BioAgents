@@ -75,6 +75,8 @@ export async function extractSections(
   client: Anthropic,
   paper_array: PaperArrayElement[]
 ): Promise<LabelPageRanges> {
+  logger.info(`Extracting sections from paper array with ${paper_array.length} elements`);
+  
   const originalLabels = [
     "Abstract",
     "Introduction",
@@ -86,6 +88,8 @@ export async function extractSections(
   ];
 
   const labels = originalLabels.map((label) => label.toLowerCase());
+  logger.info(`Looking for sections: ${labels.join(", ")}`);
+  
   const label_page_numbers: Record<string, number[]> = {};
   const label_mapping: Record<string, string> = {};
 
@@ -685,21 +689,39 @@ export async function create_graph(
   citations_text: string,
   subgraph: SubgraphSet
 ): Promise<Record<string, JSONValue>> {
+  logger.info(`Creating graph from basic info, citations, and subgraphs`);
+  logger.info(`Basic info text length: ${basic_info_text.length} characters`);
+  logger.info(`Citations text length: ${citations_text.length} characters`);
+  
   const { go, doid, chebi, atc } = subgraph;
+  logger.info(`Subgraph sizes: GO=${go.length}, DOID=${doid.length}, CHEBI=${chebi.length}, ATC=${atc.length}`);
 
   let generated_graph: Record<string, JSONValue> = {};
 
   try {
+    logger.info(`Getting subgraph basic info`);
     const generated_graph_text = await get_subgraph_basic_info(
       client,
       basic_info_text
     );
-    generated_graph = JSON.parse(generated_graph_text) as Record<
-      string,
-      JSONValue
-    >;
+    logger.info(`Generated graph text length: ${generated_graph_text.length} characters`);
+    
+    // Debug: Log a sample of the generated graph text
+    logger.debug(`Generated graph text sample: ${generated_graph_text.substring(0, 500)}...`);
+    
+    try {
+      generated_graph = JSON.parse(generated_graph_text) as Record<
+        string,
+        JSONValue
+      >;
+      logger.info(`Successfully parsed generated graph text as JSON`);
+    } catch (parseError) {
+      logger.error(`Error parsing generated graph text as JSON: ${parseError.message}`);
+      logger.error(`Generated graph text: ${generated_graph_text.substring(0, 200)}...`);
+      throw parseError;
+    }
   } catch (e) {
-    logger.error("Generating graph exception", e);
+    logger.error(`Generating graph exception: ${e.message}`);
   }
 
   // Ensure the array is in place
@@ -713,6 +735,12 @@ export async function create_graph(
   const chebiArray = get_subgraph_chebi(chebi);
   const atcArray = get_subgraph_atc(atc);
 
+  // Debug: Log subgraph arrays
+  logger.debug(`GO array length: ${Array.isArray(goArray) ? goArray.length : 'not an array'}`);
+  logger.debug(`DOID array length: ${Array.isArray(doidArray) ? doidArray.length : 'not an array'}`);
+  logger.debug(`CHEBI array length: ${Array.isArray(chebiArray) ? chebiArray.length : 'not an array'}`);
+  logger.debug(`ATC array length: ${Array.isArray(atcArray) ? atcArray.length : 'not an array'}`);
+
   // We know "obi:OBI_0000299" must be an array
   const obiArr = generated_graph["obi:OBI_0000299"];
   if (Array.isArray(obiArr)) {
@@ -720,11 +748,44 @@ export async function create_graph(
     if (Array.isArray(doidArray)) obiArr.push(...doidArray);
     if (Array.isArray(chebiArray)) obiArr.push(...chebiArray);
     if (Array.isArray(atcArray)) obiArr.push(...atcArray);
+    
+    // Debug: Log the combined array length
+    logger.debug(`Combined obi:OBI_0000299 array length: ${obiArr.length}`);
+    
+    // Debug: Check for potential issues in the array items
+    for (let i = 0; i < Math.min(obiArr.length, 5); i++) {
+      const item = obiArr[i];
+      if (item && typeof item === 'object') {
+        logger.debug(`Sample item ${i} keys: ${Object.keys(item).join(', ')}`);
+        
+        // Check for @id
+        if (!('@id' in item)) {
+          logger.warn(`Item ${i} in obi:OBI_0000299 is missing @id`);
+        }
+      } else {
+        logger.warn(`Item ${i} in obi:OBI_0000299 is not an object: ${typeof item}`);
+      }
+    }
+  } else {
+    logger.warn(`obi:OBI_0000299 is not an array: ${typeof obiArr}`);
   }
 
   try {
     const subgraphCites = await get_subgraph_citations(client, citations_text);
     generated_graph["cito:cites"] = subgraphCites;
+    
+    // Debug: Log citations info
+    if (Array.isArray(subgraphCites)) {
+      logger.debug(`Citations array length: ${subgraphCites.length}`);
+      
+      // Check a sample citation
+      if (subgraphCites.length > 0) {
+        const sampleCitation = subgraphCites[0];
+        logger.debug(`Sample citation keys: ${Object.keys(sampleCitation).join(', ')}`);
+      }
+    } else {
+      logger.warn(`Citations is not an array: ${typeof subgraphCites}`);
+    }
   } catch (e) {
     logger.error("Error generating citations", e);
   }
@@ -733,10 +794,39 @@ export async function create_graph(
   const doi = generated_graph["dcterms:identifier"];
   if (doi && doi !== "https://doi.org/XX.XXXX/XX.XXXX") {
     generated_graph["@id"] = doi;
+    logger.debug(`Using DOI as @id: ${doi}`);
   } else {
     generated_graph["@id"] = "PLEASE FILL IN THE DOI URL IDENTIFIER HERE";
+    logger.warn(`Using placeholder @id because valid DOI not found`);
   }
-
+  
+  // Debug: Check for required JSON-LD properties
+  if (!generated_graph["@context"]) {
+    logger.warn("Missing @context in generated graph");
+    
+    // Add a basic context to prevent validation errors
+    generated_graph["@context"] = {
+      "dcterms": "http://purl.org/dc/terms/",
+      "fabio": "http://purl.org/spar/fabio/",
+      "cito": "http://purl.org/spar/cito/",
+      "foaf": "http://xmlns.com/foaf/0.1/",
+      "schema": "http://schema.org/",
+      "obi": "http://purl.obolibrary.org/obo/"
+    };
+    logger.info("Added default @context to generated graph");
+  }
+  
+  if (!generated_graph["@type"]) {
+    logger.warn("Missing @type in generated graph");
+    generated_graph["@type"] = "fabio:ResearchPaper";
+    logger.info("Added default @type (fabio:ResearchPaper) to generated graph");
+  }
+  
+  // Debug: Final check of the graph structure
+  logger.info(`Final graph top-level keys: ${Object.keys(generated_graph).join(', ')}`);
+  logger.debug(`Final @id: ${generated_graph["@id"]}`);
+  logger.debug(`Final @type: ${generated_graph["@type"]}`);
+  
   return generated_graph;
 }
 
@@ -747,6 +837,9 @@ export function create_section_arrays(
   paper_array: PaperArrayElement[],
   section_ranges: LabelPageRanges
 ): PaperDict {
+  logger.info(`Creating section arrays from paper array with ${paper_array.length} elements`);
+  logger.info(`Section ranges: ${JSON.stringify(section_ranges)}`);
+  
   const introduction_array: string[] = [];
   const abstract_array: string[] = [];
   const methods_array: string[] = [];
@@ -799,7 +892,7 @@ export function create_section_arrays(
     }
   }
 
-  return {
+  const result = {
     introduction: introduction_array,
     abstract: abstract_array,
     methods: methods_array,
@@ -807,6 +900,16 @@ export function create_section_arrays(
     discussion: discussion_array,
     citations: [],
   };
+  
+  logger.info(`Created section arrays:
+    Introduction: ${result.introduction.length} elements
+    Abstract: ${result.abstract.length} elements
+    Methods: ${result.methods.length} elements
+    Results: ${result.results.length} elements
+    Discussion: ${result.discussion.length} elements
+  `);
+  
+  return result;
 }
 
 /**
@@ -816,19 +919,42 @@ export async function processJsonArray(
   paper_array: PaperArrayElement[],
   client: Anthropic
 ): Promise<PaperDict> {
-  const section_ranges = await extractSections(client, paper_array);
-  const paper_array_dict = create_section_arrays(paper_array, section_ranges);
-
-  const lastPage = paper_array[paper_array.length - 1].metadata.page_number;
-  paper_array_dict.citations = paper_array
-    .filter(
+  logger.info(`Processing JSON array with ${paper_array.length} elements`);
+  
+  try {
+    logger.info(`Extracting sections from paper array`);
+    const section_ranges = await extractSections(client, paper_array);
+    logger.info(`Section ranges: ${JSON.stringify(section_ranges)}`);
+    
+    logger.info(`Creating section arrays`);
+    const paper_array_dict = create_section_arrays(paper_array, section_ranges);
+    
+    const lastPage = paper_array[paper_array.length - 1].metadata.page_number;
+    logger.info(`Last page: ${lastPage}`);
+    
+    const citationsFilter = paper_array.filter(
       (el) =>
         el.metadata.page_number >= lastPage - CITATIONS_OFFSET &&
         typeof el.text === "string"
-    )
-    .map((el) => el.text);
-
-  return paper_array_dict;
+    );
+    logger.info(`Found ${citationsFilter.length} citation elements`);
+    
+    paper_array_dict.citations = citationsFilter.map((el) => el.text);
+    
+    logger.info(`Paper array dict created with sections: 
+      Introduction: ${paper_array_dict.introduction.length} elements
+      Abstract: ${paper_array_dict.abstract.length} elements
+      Methods: ${paper_array_dict.methods.length} elements
+      Results: ${paper_array_dict.results.length} elements
+      Discussion: ${paper_array_dict.discussion.length} elements
+      Citations: ${paper_array_dict.citations.length} elements
+    `);
+    
+    return paper_array_dict;
+  } catch (error) {
+    logger.error(`Error in processJsonArray: ${error.message}`);
+    throw error;
+  }
 }
 
 /**
