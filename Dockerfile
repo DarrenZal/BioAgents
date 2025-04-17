@@ -1,9 +1,9 @@
+# Base stage with full build tooling
 FROM node:23.3.0-slim AS base
 
-# Install pnpm and essential packages
+# Install pnpm and essential native build tools
 RUN npm install -g pnpm@9.15.4 && \
     apt-get update && \
-    apt-get upgrade -y && \
     apt-get install -y \
     git \
     python3 \
@@ -22,23 +22,23 @@ RUN npm install -g pnpm@9.15.4 && \
     libjpeg-dev \
     libpango1.0-dev \
     libgif-dev \
-    openssl \
-    libssl-dev libsecret-1-dev \
+    libssl-dev \
+    libsecret-1-dev \
     ghostscript \
     graphicsmagick && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Create app directory
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
+# Copy package manager files early for better caching
+COPY package.json pnpm-lock.yaml* ./
 
-# Install dependencies
-RUN pnpm install 
+# Install dependencies early to maximize layer caching
+RUN pnpm install
 
-# Copy source code
+# Copy rest of the code
 COPY . .
 
 # Build stage
@@ -46,10 +46,10 @@ FROM base AS builder
 
 RUN pnpm build
 
-# Production stage
+# Production stage (slimmer, faster runtime)
 FROM node:23.3.0-slim AS production
-WORKDIR /app
 
+# Only install runtime dependencies
 RUN npm install -g pnpm@9.15.4 && \
     apt-get update && \
     apt-get install -y \
@@ -61,27 +61,23 @@ RUN npm install -g pnpm@9.15.4 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy package files and install dependencies
-COPY package.json ./
-RUN pnpm install && pnpm add uuid
+WORKDIR /app
 
-# Copy built assets
+COPY .env .env
+
+# Copy just the production node modules and built code
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy database migrations and schemas
+# Copy DB/migrations/schemas/etc
 COPY drizzle ./drizzle
 COPY src/db/schemas ./src/db/schemas
 COPY drizzle.config.ts ./
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
-# Set environment variables
 ENV NODE_ENV=production
-
-# Expose port
 EXPOSE 3000
 
-# Start the application
 ENTRYPOINT ["./docker-entrypoint.sh"]

@@ -3,6 +3,8 @@
 import { google, drive_v3 } from "googleapis";
 import { ListFilesQueryContext } from "./buildQuery";
 import "dotenv/config";
+import fs from 'fs';  
+
 /**
  * Initialize and return a Google Drive client
  * @param scopes - The OAuth scopes to request
@@ -14,7 +16,17 @@ export async function initDriveClient(
   let credentials: any;
   try {
     // Load credentials
-    credentials = JSON.parse(process.env.GCP_JSON_CREDENTIALS || "");
+    let credentials: any;
+    const credsEnv = process.env.GCP_JSON_CREDENTIALS;
+    const credsPath = process.env.GCP_CREDENTIALS_PATH;
+    
+    if (credsEnv && credsEnv.trim()) {
+      credentials = JSON.parse(credsEnv);
+    } else if (credsPath) {
+      credentials = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+    } else {
+      throw new Error("No Google credentials found. Set either GCP_JSON_CREDENTIALS or GCP_CREDENTIALS_PATH");
+    }
     // Set up authentication
     const auth = new google.auth.GoogleAuth({
       credentials,

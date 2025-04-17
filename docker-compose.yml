@@ -4,9 +4,9 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
     volumes:
@@ -27,8 +27,8 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
     depends_on:
@@ -40,8 +40,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    command: pnpm run dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
     environment:
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      GCP_CREDENTIALS_PATH: /app/config/otdkg-383119-87a0bc5dc94c.json
+    volumes:
+      - ./config/otdkg-383119-87a0bc5dc94c.json:/app/config/otdkg-383119-87a0bc5dc94c.json
     depends_on:
       - postgres
       - oxigraph
@@ -54,4 +62,4 @@ volumes:
 
 networks:
   bio-network:
-    driver: bridge 
+    driver: bridge

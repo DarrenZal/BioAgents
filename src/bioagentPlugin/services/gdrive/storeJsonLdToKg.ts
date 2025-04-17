@@ -6,8 +6,10 @@ import "dotenv/config";
 import { logger } from "@elizaos/core";
 
 const ENV = process.env.ENV;
-const OXIGRAPH_URL =
-  ENV === "dev" ? "http://localhost:7878" : process.env.PROD_OXIGRAPH_HOST;
+const OXIGRAPH_HOST =
+  ENV === "prod"
+    ? process.env.PROD_OXIGRAPH_HOST
+    : process.env.LOCAL_OXIGRAPH_HOST || "http://localhost:7878";
 
 /**
  * Recursively adds an @id field (with a random UUID) to all objects
@@ -146,7 +148,7 @@ export async function storeJsonLd(
       }
 
       const ntriplesString = ntriples.join("\n");
-      const oxigraphUrl = OXIGRAPH_URL || "http://localhost:7878";
+      const oxigraphUrl = process.env.LOCAL_OXIGRAPH_HOST || "http://oxigraph:7878/sparql";
 
       try {
         const response = await axios.post(
@@ -223,6 +225,23 @@ export async function storeJsonLd(
       } catch (checkErr) {
         logger.error("Error during JSON-LD validation check:", checkErr);
       }
+
+      // 🛡️ SAFETY CHECK: Skip upload if content is likely fallback or lacks real data
+      const title = jsonToStore["dcterms:title"] || jsonToStore["schema:name"] || "";
+      const abstract = jsonToStore["dcterms:abstract"] || jsonToStore["schema:abstract"] || "";
+
+      const isLikelyFallback = (
+        title.toLowerCase().includes("untitled") ||
+        abstract.trim().length < 50 ||
+        Object.keys(jsonToStore).length <= 5
+      );
+
+      if (isLikelyFallback) {
+        logger.warn("🚫 Skipping DKG upload: Content appears to be fallback or lacks substance.");
+        logger.debug(`Fallback check triggered for title: "${title}", abstract length: ${abstract.length}`);
+        return { success: false };
+      }
+
 
       // Try to create the asset with safe mode disabled first
       try {

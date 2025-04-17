@@ -7,7 +7,6 @@ import "dotenv/config";
 
 // Configuration and constants
 const ENV = process.env.ENV || "dev";
-const deployedUrl = ENV === "dev" ? process.env.DEV_URL : process.env.PROD_URL;
 
 // Type definitions
 interface WatchResponse {
@@ -151,7 +150,11 @@ async function setupWatchChannel(
   queryContext: ListFilesQueryContext
 ): Promise<void> {
   const driveId = queryContext.getDriveId();
-  const webhookUrl = `${deployedUrl}/api/gdrive/webhook`;
+  const baseUrl = process.env.BASE_URL;
+  if (!baseUrl || !baseUrl.startsWith("https://")) {
+    throw new Error("BASE_URL must be set and start with 'https://'");
+  }
+  const webhookUrl = `${baseUrl}/api/gdrive/webhook`;
   const gdriveChannel = await runtime.db.select().from(gdriveChannelsTable);
 
   if (gdriveChannel.length === 0) {

@@ -443,10 +443,12 @@ export async function generateKaFromPdf(paperUrl: string): Promise<GeneratedGrap
 /**
  * Processes text content into a knowledge assembly
  */
-export async function processDocumentContent(content: string, dkgClient: DKGClient): Promise<GeneratedGraph> {
+export async function processDocumentContent(
+  content: string,
+  dkgClient: DKGClient
+): Promise<GeneratedGraph & { usedFallback?: boolean }> {
   const client = getClient();
   
-  // Create a synthetic ID based on the content hash
   const contentHash = crypto.createHash('md5').update(content).digest('hex');
   const syntheticDoi = `synthetic-${contentHash.substring(0, 8)}`;
   
@@ -455,53 +457,49 @@ export async function processDocumentContent(content: string, dkgClient: DKGClie
   logger.info(`Synthetic DOI: ${syntheticDoi}`);
   
   try {
-    // For text content, we'll use Claude to help structure it into sections
     const structuringPrompt = `
-    I have the content of a scientific paper that needs to be structured. 
-    Please analyze this content and divide it into the following sections (if present):
-    - Title
-    - Authors
-    - Abstract
-    - Introduction
-    - Methods
-    - Results
-    - Discussion
-    - Conclusion
-    - References
-    
-    For each section, output the content in JSON format like this:
-    {
-      "title": "The paper title",
-      "authors": ["Author 1", "Author 2"],
-      "abstract": "The abstract text...",
-      "introduction": "The introduction text...",
-      "methods": "The methods text...",
-      "results": "The results text...",
-      "discussion": "The discussion text...",
-      "conclusion": "The conclusion text...",
-      "references": ["Reference 1", "Reference 2"]
-    }
-    
-    If a section is not present, leave it as an empty string or empty array as appropriate.
-    Here's the paper content: 
-    
-    ${content.substring(0, 10000)}  // Limit to first 10k chars to avoid token limits
+I have the content of a scientific paper that needs to be structured. 
+Please analyze this content and divide it into the following sections (if present):
+- Title
+- Authors
+- Abstract
+- Introduction
+- Methods
+- Results
+- Discussion
+- Conclusion
+- References
+
+Output the result in *valid JSON format* as:
+{
+  "title": "...",
+  "authors": ["..."],
+  ...
+}
+
+Here's the paper content:
+${content.substring(0, 10000)}
     `;
-    
+
     const structuredResponse = await generateResponse(client, structuringPrompt);
-    let structuredContent;
-    
+    let structuredContent: any;
+    let usedFallback = false;
+
+    logger.debug("🧠 Raw Claude structured response (first 500 chars):");
+    logger.debug(structuredResponse.slice(0, 500));
+
     try {
-      // Try to parse the JSON response
       structuredContent = JSON.parse(structuredResponse);
+      logger.info("✅ Successfully parsed Claude structured response.");
     } catch (error) {
-      logger.error("Failed to parse structured content as JSON, using fallback method");
+      usedFallback = true;
+      logger.error("❌ Failed to parse structured content as JSON. Using fallback.");
+      logger.debug("🪵 Raw structured response:", structuredResponse);
       
-      // Create a simpler structure as fallback
       structuredContent = {
         title: "Untitled Paper",
         authors: [],
-        abstract: content.substring(0, 500),  // Use first 500 chars as abstract
+        abstract: content.substring(0, 500),
         introduction: "",
         methods: "",
         results: "",
@@ -510,75 +508,61 @@ export async function processDocumentContent(content: string, dkgClient: DKGClie
         references: []
       };
     }
-    
-    // Now create a synthetic JSON array for jsonArrToKa
+
     const syntheticJsonArr: PaperArrayElement[] = [
       {
-        metadata: {
-          page_number: 1
-        },
+        metadata: { page_number: 1 },
         text: structuredContent.title || "Untitled Paper",
         type: "NarrativeText"
       },
       {
-        metadata: {
-          page_number: 1
-        },
+        metadata: { page_number: 1 },
         text: Array.isArray(structuredContent.authors) ? structuredContent.authors.join(", ") : "",
         type: "NarrativeText"
       },
       {
-        metadata: {
-          page_number: 1
-        },
+        metadata: { page_number: 1 },
         text: structuredContent.abstract || "",
         type: "NarrativeText"
       }
     ];
-    
-    // Add each section as a separate element
+
     ["introduction", "methods", "results", "discussion", "conclusion"].forEach((section, index) => {
       if (structuredContent[section]) {
         syntheticJsonArr.push({
-          metadata: {
-            page_number: index + 2  // Start from page 2
-          },
+          metadata: { page_number: index + 2 },
           text: structuredContent[section],
           type: "NarrativeText"
         });
       }
     });
-    
-    // Add references if present
+
     if (Array.isArray(structuredContent.references) && structuredContent.references.length > 0) {
       syntheticJsonArr.push({
-        metadata: {
-          page_number: 10  // Arbitrary high page number for references
-        },
+        metadata: { page_number: 10 },
         text: structuredContent.references.join("\n"),
         type: "NarrativeText"
       });
     }
-    
-    // Process the synthetic JSON array into a knowledge assembly
+
     logger.info(`Created synthetic JSON array with ${syntheticJsonArr.length} elements`);
     logger.info(`First element title: ${syntheticJsonArr[0].text}`);
-    
+
     try {
       const result = await jsonArrToKa(syntheticJsonArr, syntheticDoi);
-      logger.info(`Successfully created knowledge assembly with title: ${result["dcterms:title"] || "Untitled"}`);
-      return result;
+      logger.info(`✅ Successfully created knowledge assembly with title: ${result["dcterms:title"] || "Untitled"}`);
+      return { ...result, usedFallback };
     } catch (error) {
-      logger.error(`Error in jsonArrToKa during processDocumentContent: ${error.message}`);
+      logger.error(`❌ Error in jsonArrToKa: ${error.message}`);
       throw error;
     }
-    
+
   } catch (error) {
-    logger.error("Error processing document content:", error);
-    // Return a fallback graph to avoid returning null
+    logger.error("Fatal error in processDocumentContent:", error);
     return createFallbackKA("Untitled Paper", content);
   }
 }
+
 
 // Helper functions to extract title and abstract
 function extractTitleFromText(text: string): string {
