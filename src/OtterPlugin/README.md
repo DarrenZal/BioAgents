@@ -46,6 +46,8 @@ Once installed and configured, the plugin provides the following capabilities to
    - List recent transcripts: "Show me my Otter.ai transcripts"
    - Get a specific transcript: "Get transcript for [ID]"
    - Search transcripts: "Search for [query] in my transcripts"
+   - Analyze a transcript: "Reason about transcript [ID]"
+   - Ask specific questions: "Reason about transcript [ID], what did they discuss about [topic]?"
 
 2. **FETCH_OTTER_SUMMARY**: Retrieve meeting summaries from Otter.ai
    - List recent summaries: "Show me my Otter.ai meeting summaries"
@@ -154,6 +156,14 @@ For reasoning about transcripts:
 5. The handler then retrieves the transcript from the database
 6. The full transcript (or as much as fits within context limits) is sent to the LLM
 7. The LLM analyzes the transcript and provides insights
+
+For asking specific questions about transcripts:
+1. User asks a specific question (e.g., "Reason about transcript ABC123, what did they discuss about project timelines?")
+2. The fetchTranscripts action extracts both the transcript ID and the question
+3. The handleTranscriptReasoning handler is called with both parameters
+4. The transcript is retrieved from the database (or fetched and stored if not available)
+5. The full transcript and the specific question are sent to the LLM
+6. The LLM provides a targeted answer to the question based on the transcript content
 
 ### Building and Development
 

@@ -57,9 +57,12 @@ import {
         }
         
         // Check if user is asking to reason about a transcript
-        const reasonMatch = messageText.match(/reason(?:\s+about)?\s+transcript(?:\s+for)?(?:\s+id)?\s+["']?([a-zA-Z0-9_-]+)["']?/i);
+        // This pattern captures both the transcript ID and any additional question after it
+        const reasonMatch = messageText.match(/reason(?:\s+about)?\s+transcript(?:\s+for)?(?:\s+id)?\s+["']?([a-zA-Z0-9_-]+)["']?(?:,?\s+(.+))?/i);
         if (reasonMatch) {
-          return await handleTranscriptReasoning(runtime, otterService, reasonMatch[1], message, callback);
+          const speechId = reasonMatch[1];
+          const question = reasonMatch[2] || null; // The specific question, if any
+          return await handleTranscriptReasoning(runtime, otterService, speechId, question, message, callback);
         }
         
         // Check if user is asking for a specific transcript
@@ -134,6 +137,19 @@ import {
         {
           name: "{{user2}}",
           content: { text: "Based on my analysis of this transcript, here are the key insights and takeaways..." },
+        },
+      ],
+      [
+        {
+          user: "{{user1}}",
+          content: { 
+            text: "Reason about transcript 77NXWSPLSSXQ56JU, what did John and Sarah discuss about the project timeline?", 
+            action: "FETCH_OTTER_TRANSCRIPTS" 
+          },
+        },
+        {
+          name: "{{user2}}",
+          content: { text: "Based on the transcript, John and Sarah discussed the following points about the project timeline..." },
         },
       ],
     ] as ActionExample[][],
@@ -299,14 +315,14 @@ import {
         
         if (formattedContent.length > MAX_CONTENT_LENGTH) {
           const remainingChars = formattedContent.length - MAX_CONTENT_LENGTH;
-          const note = `\n\n*Note: This transcript is ${formattedContent.length} characters long. Only showing the first ${MAX_CONTENT_LENGTH} characters. ${remainingChars} characters were truncated.*\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`;
+          const note = `\n\n*Note: This transcript is ${formattedContent.length} characters long. Only showing the first ${MAX_CONTENT_LENGTH} characters. ${remainingChars} characters were truncated.*\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}" or ask a specific question like "reason about transcript ${speechId}, what did they discuss about [topic]?"`;
           await callback({
             text: contentMessage + note,
             source: message.content.source,
           });
         } else {
           await callback({
-            text: contentMessage + `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`,
+            text: contentMessage + `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}" or ask a specific question like "reason about transcript ${speechId}, what did they discuss about [topic]?"`,
             source: message.content.source,
           });
         }
@@ -316,7 +332,7 @@ import {
       } else {
         // For smaller transcripts, include the content in the main response
         response += `**Transcript Content**:\n\n${formattedContent}`;
-        response += `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`;
+        response += `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}" or ask a specific question like "reason about transcript ${speechId}, what did they discuss about [topic]?"`;
         
         logger.debug("handleSpecificTranscript: Sending response to user");
         await callback({
@@ -422,13 +438,14 @@ import {
     }
   }
   
-  async function handleTranscriptReasoning(
-    runtime: IAgentRuntime,
-    otterService: OtterService,
-    speechId: string,
-    message: Memory,
-    callback: HandlerCallback
-  ): Promise<boolean> {
+async function handleTranscriptReasoning(
+  runtime: IAgentRuntime,
+  otterService: OtterService,
+  speechId: string,
+  question: string | null,
+  message: Memory,
+  callback: HandlerCallback
+): Promise<boolean> {
     try {
       await callback({
         text: `Analyzing transcript with ID: ${speechId}...`,
@@ -532,7 +549,14 @@ import {
         response += `**Transcript Content**:\n\n${contentToAnalyze}\n\n`;
         
         // Add a prompt for the LLM to analyze the transcript
-        response += `**Analysis**:\n\nBased on the transcript above, here are the key insights and takeaways:\n\n`;
+        if (question) {
+          // If a specific question was asked, include it in the prompt
+          response += `**Question**: ${question}\n\n`;
+          response += `**Analysis**:\n\nBased on the transcript above, here is the answer to your question:\n\n`;
+        } else {
+          // Otherwise, provide a general analysis prompt
+          response += `**Analysis**:\n\nBased on the transcript above, here are the key insights and takeaways:\n\n`;
+        }
         
         // Send the response
         await callback({
