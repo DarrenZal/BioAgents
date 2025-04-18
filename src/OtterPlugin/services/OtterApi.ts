@@ -150,10 +150,13 @@ export class OtterApi {
     }
     
     try {
+      logger.debug(`OtterApi.getSpeech: Fetching speech with ID: ${speechId}`);
+      logger.debug(`OtterApi.getSpeech: Request params: userid=${this.userId}, speech_id=${speechId}`);
+      
       const response = await this.axiosInstance.get(`${this.baseUrl}/speech`, {
         params: {
           userid: this.userId,
-          otid: speechId
+          speech_id: speechId
         }
       });
       
@@ -161,9 +164,71 @@ export class OtterApi {
         throw new Error(`Failed to get speech with status code: ${response.status}`);
       }
       
+      logger.debug(`OtterApi.getSpeech: Response status: ${response.status}`);
+      logger.debug(`OtterApi.getSpeech: Response data keys: ${Object.keys(response.data).join(', ')}`);
+      
+      if (response.data.transcripts) {
+        logger.debug(`OtterApi.getSpeech: Found ${response.data.transcripts.length} transcripts`);
+      } else {
+        logger.debug(`OtterApi.getSpeech: No transcripts found in response`);
+      }
+      
+      // Log the full response data for debugging
+      logger.debug(`OtterApi.getSpeech: Full response data: ${JSON.stringify(response.data, null, 2)}`);
+      
+      // The API response structure can vary:
+      // 1. It might have transcripts directly in the response
+      // 2. It might have transcripts in response.data
+      // 3. It might have transcripts in response.data.speech
+      // 4. It might not have transcripts at all and we need to fetch them separately
+      
+      const speechData = response.data.speech || response.data;
+      let transcripts = [];
+      
+      // Check if transcripts are in the response
+      if (response.data.transcripts && Array.isArray(response.data.transcripts)) {
+        logger.debug(`OtterApi.getSpeech: Found ${response.data.transcripts.length} transcripts in response.data.transcripts`);
+        transcripts = response.data.transcripts;
+      } 
+      // Check if transcripts are in the speech object
+      else if (speechData.transcripts && Array.isArray(speechData.transcripts)) {
+        logger.debug(`OtterApi.getSpeech: Found ${speechData.transcripts.length} transcripts in speechData.transcripts`);
+        transcripts = speechData.transcripts;
+      }
+      // If no transcripts found, try to fetch them separately
+      else {
+        const speechIdFromResponse = speechData.speech_id || speechData.otid;
+        
+        if (speechIdFromResponse) {
+          try {
+            logger.debug(`OtterApi.getSpeech: No transcripts found in response, attempting to fetch them separately for speech ${speechIdFromResponse}`);
+            
+            // Make a separate request to get the transcripts
+            const transcriptsResponse = await this.axiosInstance.get(`${this.baseUrl}/transcripts`, {
+              params: {
+                userid: this.userId,
+                speech_id: speechIdFromResponse
+              }
+            });
+            
+            logger.debug(`OtterApi.getSpeech: Transcripts response status: ${transcriptsResponse.status}`);
+            
+            if (transcriptsResponse.status === 200 && transcriptsResponse.data.transcripts) {
+              logger.debug(`OtterApi.getSpeech: Successfully fetched ${transcriptsResponse.data.transcripts.length} transcripts separately`);
+              transcripts = transcriptsResponse.data.transcripts;
+            }
+          } catch (transcriptsError) {
+            logger.error(`OtterApi.getSpeech: Error fetching transcripts separately:`, transcriptsError);
+            // Continue with empty transcripts
+          }
+        }
+      }
+      
+      logger.debug(`OtterApi.getSpeech: Returning speech data with ${transcripts.length} transcripts`);
+      
       return {
-        speech: response.data,
-        transcripts: response.data.transcripts || []
+        speech: speechData,
+        transcripts: transcripts
       };
     } catch (error) {
       logger.error(`Error fetching speech ${speechId}:`, error);
@@ -212,7 +277,7 @@ export class OtterApi {
         `${this.baseUrl}/bulk_export`,
         {
           formats: format,
-          speech_otid_list: [speechId]
+          speech_id_list: [speechId]
         },
         {
           params: { userid: this.userId },

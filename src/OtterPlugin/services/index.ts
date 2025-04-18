@@ -110,17 +110,33 @@ export class OtterService extends Service {
       
       // Format the response to standardize date/time handling
       logger.debug("OtterService.getAllTranscripts: Formatting speeches");
-      const formattedSpeeches = speeches.map(speech => ({
-        speech_id: speech.speech_id,
-        title: speech.title || "Untitled",
-        summary: speech.summary,
-        created_at: new Date(speech.created_at * 1000).toISOString(),
-        duration: speech.duration,
-        has_summary: !!speech.summary && speech.summary.trim().length > 0,
-        has_transcript: speech.process_finished,
-        transcription_progress: speech.process_finished ? 100 : 
-                               (speech.upload_finished ? 50 : 0)
-      }));
+      const formattedSpeeches = speeches.map(speech => {
+        let createdAtFormatted;
+        try {
+          // Check if created_at is a valid timestamp
+          if (speech.created_at && !isNaN(speech.created_at)) {
+            createdAtFormatted = new Date(speech.created_at * 1000).toISOString();
+          } else {
+            createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+            logger.warn(`Invalid created_at timestamp for speech ${speech.speech_id}, using current date instead`);
+          }
+        } catch (error) {
+          createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+          logger.warn(`Error formatting created_at for speech ${speech.speech_id}: ${error.message}`);
+        }
+        
+        return {
+          speech_id: speech.speech_id,
+          title: speech.title || "Untitled",
+          summary: speech.summary,
+          created_at: createdAtFormatted,
+          duration: speech.duration,
+          has_summary: !!speech.summary && speech.summary.trim().length > 0,
+          has_transcript: speech.process_finished,
+          transcription_progress: speech.process_finished ? 100 : 
+                                 (speech.upload_finished ? 50 : 0)
+        };
+      });
       
       // Cache the result
       if (useCache) {
@@ -171,15 +187,43 @@ export class OtterService extends Service {
       }
       
       // Fetch speech details
+      logger.debug(`OtterService.getTranscriptDetails: Fetching speech details for ${speechId}`);
       const response = await this.api!.getSpeech(speechId);
+      logger.debug(`OtterService.getTranscriptDetails: Got response from API`);
+      
       const { speech, transcripts } = response;
+      logger.debug(`OtterService.getTranscriptDetails: Speech object keys: ${Object.keys(speech).join(', ')}`);
+      logger.debug(`OtterService.getTranscriptDetails: Found ${transcripts.length} transcripts`);
+      
+      if (transcripts.length === 0) {
+        logger.warn(`OtterService.getTranscriptDetails: No transcripts found for speech ${speechId}`);
+      } else {
+        // Log some details about the first transcript
+        const firstTranscript = transcripts[0];
+        logger.debug(`OtterService.getTranscriptDetails: First transcript keys: ${Object.keys(firstTranscript).join(', ')}`);
+        logger.debug(`OtterService.getTranscriptDetails: First transcript text: ${firstTranscript.transcript ? firstTranscript.transcript.substring(0, 50) + '...' : 'No text'}`);
+      }
       
       // Format the response to standardize date/time handling and structure
+      let createdAtFormatted;
+      try {
+        // Check if created_at is a valid timestamp
+        if (speech.created_at && !isNaN(speech.created_at)) {
+          createdAtFormatted = new Date(speech.created_at * 1000).toISOString();
+        } else {
+          createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+          logger.warn(`Invalid created_at timestamp for speech ${speechId}, using current date instead`);
+        }
+      } catch (error) {
+        createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+        logger.warn(`Error formatting created_at for speech ${speechId}: ${error.message}`);
+      }
+      
       const formattedSpeech = {
         otid: speech.speech_id,
         title: speech.title || "Untitled",
         summary: speech.summary,
-        created_at: new Date(speech.created_at * 1000).toISOString(),
+        created_at: createdAtFormatted,
         processing_status: speech.process_finished ? "complete" : "processing",
         transcript: {
           paragraphs: transcripts.map(t => ({
@@ -189,7 +233,13 @@ export class OtterService extends Service {
             start_time: Math.floor(t.start_offset / 1000), // Convert ms to seconds
             end_time: Math.floor(t.end_offset / 1000),     // Convert ms to seconds
           }))
-        }
+        },
+        // Include speech outline if available
+        speech_outline: speech.speech_outline || null,
+        // Include word clouds if available
+        word_clouds: speech.word_clouds || null,
+        // Include audio URL if available
+        audio_url: speech.audio_url || speech.download_url || null
       };
       
       // Cache the result
@@ -225,15 +275,31 @@ export class OtterService extends Service {
       const results = await this.api!.speechSearch(query);
       
       // Format the search results
-      const formattedResults = results.map(result => ({
-        speech_id: result.speech_id,
-        title: result.title || "Untitled",
-        created_at: new Date((result.start_time || 0) * 1000).toISOString(),
-        matches: result.matched_transcripts?.map(match => ({
-          transcript_id: match.transcript_id,
-          text: match.matched_transcript
-        })) || []
-      }));
+      const formattedResults = results.map(result => {
+        let createdAtFormatted;
+        try {
+          // Check if start_time is a valid timestamp
+          if (result.start_time && !isNaN(result.start_time)) {
+            createdAtFormatted = new Date(result.start_time * 1000).toISOString();
+          } else {
+            createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+            logger.warn(`Invalid start_time timestamp for search result ${result.speech_id}, using current date instead`);
+          }
+        } catch (error) {
+          createdAtFormatted = new Date().toISOString(); // Use current date as fallback
+          logger.warn(`Error formatting start_time for search result ${result.speech_id}: ${error.message}`);
+        }
+        
+        return {
+          speech_id: result.speech_id,
+          title: result.title || "Untitled",
+          created_at: createdAtFormatted,
+          matches: result.matched_transcripts?.map(match => ({
+            transcript_id: match.transcript_id,
+            text: match.matched_transcript
+          })) || []
+        };
+      });
       
       return formattedResults;
     } catch (error) {
