@@ -82,8 +82,6 @@ The Otter.ai plugin is built using a modular architecture that follows the Eliza
     └── transcriptDbService.ts  # Service for storing and retrieving transcripts
 ```
 
-[Rest of the existing README content remains the same...]
-
 ## Future Development
 
 ### Transcript Storage and Reasoning
@@ -145,9 +143,78 @@ interface SecureContextExchange {
 
 This approach transforms meeting transcripts from passive records into active research assets, enabling more dynamic and interconnected scientific discourse while maintaining the highest standards of data privacy and ethical research practices.
 
-### GraphRAG Integration
+### GraphRAG Integration Roadmap
 
-[Existing GraphRAG section remains the same]
+#### Architecture Overview
+```mermaid
+graph TD
+    A[Otter Transcripts] --> B[Entity Extraction]
+    B --> C[Ontology Resolution]
+    C --> D[Knowledge Graph]
+    D --> E[GraphRAG Service]
+    E --> F[Query Interface]
+    C -->|Entity Disambiguation| G[URI Service]
+    D -->|Temporal Context| H[Versioned Ontology]
+```
+
+#### Implementation Phases
+
+1. **Core Ontology Schema** (`v1.0`)
+```typescript
+// src/OtterPlugin/types.ts
+interface GraphRAGConfig {
+  ontologyVersion: string;
+  entityResolutionThreshold: number;
+  temporalContextDepth: number;
+}
+```
+
+2. **Entity Resolution Service**
+```typescript
+// src/OtterPlugin/services/entityResolver.ts
+class EntityResolver {
+  constructor(
+    private similarityThreshold = 0.85,
+    private contextWindow = 3 // meetings to consider
+  ) {}
+
+  resolveTranscriptEntities(transcript: Transcript): ResolvedEntity[] {
+    // Uses NLP to link entities across meetings
+  }
+}
+```
+
+3. **Graph Query Patterns**
+```sparql
+# Example hypothesis generation query
+SELECT ?hypothesis ?confidence
+WHERE {
+  ?meeting :discussedTopic "protein folding" .
+  ?participant :attendedMeeting ?meeting ;
+               :affiliation ?org .
+  ?org :researchFocus ?researchArea .
+  BIND(CONCAT("Potential collaboration between ", ?org, 
+        " on ", ?researchArea) AS ?hypothesis)
+  BIND(0.85 AS ?confidence)
+}
+```
+
+#### Key Features
+
+- **Knowledge Graph Construction**: Build comprehensive knowledge graphs from transcript content
+- **Semantic Relationship Mapping**: Connect entities, topics, and concepts across multiple meetings
+- **Entity Disambiguation**: Develop sophisticated NLP techniques to resolve and link entities
+- **Temporal Context Tracking**: Maintain versioned ontology to track entity evolution
+- **Multi-hop Reasoning**: Enable cross-transcript insights and pattern recognition
+
+#### Potential Applications
+
+- Automated meeting insights generation
+- Cross-meeting topic and relationship discovery
+- Enhanced contextual understanding for AI agents
+- Intelligent hypothesis generation from meeting data
+
+This approach will transform how we extract and utilize information from meeting transcripts, providing unprecedented depth and connectivity in meeting analysis.
 
 ## License
 
