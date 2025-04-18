@@ -191,16 +191,78 @@ A planned enhancement is to store processed transcripts in a database (PostgreSQ
 - **Chunking and Embedding**: Large transcripts could be automatically chunked and embedded for more efficient retrieval.
 - **Contextual Analysis**: Enable deeper analysis of meeting content by maintaining the full context of conversations.
 
-### GraphRAG Integration
+### GraphRAG Integration Roadmap
 
-Another exciting direction is implementing GraphRAG (Graph Retrieval Augmented Generation) for transcripts:
+#### Architecture Overview
+```mermaid
+graph TD
+    A[Otter Transcripts] --> B[Entity Extraction]
+    B --> C[Ontology Resolution]
+    C --> D[Knowledge Graph]
+    D --> E[GraphRAG Service]
+    E --> F[Query Interface]
+    C -->|Entity Disambiguation| G[URI Service]
+    D -->|Temporal Context| H[Versioned Ontology]
+```
 
-- **Knowledge Graph Construction**: Build knowledge graphs from transcript content, connecting entities, topics, and concepts mentioned in meetings.
-- **Semantic Relationships**: Establish relationships between different meetings and topics discussed across multiple transcripts.
-- **Enhanced Retrieval**: Use graph-based retrieval to find not just relevant transcript segments but also related concepts and discussions from other meetings.
-- **Multi-hop Reasoning**: Enable the agent to reason across multiple transcripts and make connections that span different meetings and time periods.
+#### Implementation Phases
 
-This approach would significantly enhance the agent's ability to provide insights across a user's meeting history, identifying patterns, recurring topics, and connections that might not be apparent from individual transcript analysis.
+1. **Core Ontology Schema** (`v1.0`)
+```typescript
+// src/OtterPlugin/types.ts
+interface GraphRAGConfig {
+  ontologyVersion: string;
+  entityResolutionThreshold: number;
+  temporalContextDepth: number;
+}
+```
+
+2. **Entity Resolution Service**
+```typescript
+// src/OtterPlugin/services/entityResolver.ts
+class EntityResolver {
+  constructor(
+    private similarityThreshold = 0.85,
+    private contextWindow = 3 // meetings to consider
+  ) {}
+
+  resolveTranscriptEntities(transcript: Transcript): ResolvedEntity[] {
+    // Uses NLP to link entities across meetings
+  }
+}
+```
+
+3. **Graph Query Patterns**
+```sparql
+# Example hypothesis generation query
+SELECT ?hypothesis ?confidence
+WHERE {
+  ?meeting :discussedTopic "protein folding" .
+  ?participant :attendedMeeting ?meeting ;
+               :affiliation ?org .
+  ?org :researchFocus ?researchArea .
+  BIND(CONCAT("Potential collaboration between ", ?org, 
+        " on ", ?researchArea) AS ?hypothesis)
+  BIND(0.85 AS ?confidence)
+}
+```
+
+#### Key Features
+
+- **Knowledge Graph Construction**: Build comprehensive knowledge graphs from transcript content
+- **Semantic Relationship Mapping**: Connect entities, topics, and concepts across multiple meetings
+- **Entity Disambiguation**: Develop sophisticated NLP techniques to resolve and link entities
+- **Temporal Context Tracking**: Maintain versioned ontology to track entity evolution
+- **Multi-hop Reasoning**: Enable cross-transcript insights and pattern recognition
+
+#### Potential Applications
+
+- Automated meeting insights generation
+- Cross-meeting topic and relationship discovery
+- Enhanced contextual understanding for AI agents
+- Intelligent hypothesis generation from meeting data
+
+This approach will transform how we extract and utilize information from meeting transcripts, providing unprecedented depth and connectivity in meeting analysis.
 
 ## License
 
