@@ -56,6 +56,12 @@ import {
           return await handleTranscriptSearch(runtime, otterService, searchMatch[1], message, callback);
         }
         
+        // Check if user is asking to reason about a transcript
+        const reasonMatch = messageText.match(/reason(?:\s+about)?\s+transcript(?:\s+for)?(?:\s+id)?\s+["']?([a-zA-Z0-9_-]+)["']?/i);
+        if (reasonMatch) {
+          return await handleTranscriptReasoning(runtime, otterService, reasonMatch[1], message, callback);
+        }
+        
         // Check if user is asking for a specific transcript
         const speechIdMatch = messageText.match(/transcript(?:\s+for)?(?:\s+id)?\s+["']?([a-zA-Z0-9_-]+)["']?/i);
         const speechId = speechIdMatch ? speechIdMatch[1] : null;
@@ -115,6 +121,19 @@ import {
         {
           name: "{{user2}}",
           content: { text: "Here are the search results for 'machine learning'..." },
+        },
+      ],
+      [
+        {
+          user: "{{user1}}",
+          content: { 
+            text: "Reason about transcript 77NXWSPLSSXQ56JU", 
+            action: "FETCH_OTTER_TRANSCRIPTS" 
+          },
+        },
+        {
+          name: "{{user2}}",
+          content: { text: "Based on my analysis of this transcript, here are the key insights and takeaways..." },
         },
       ],
     ] as ActionExample[][],
@@ -255,6 +274,12 @@ import {
         response += `\n`;
       }
       
+      // Store the transcript in the database for future reasoning
+      if (formattedContent.length > 0) {
+        logger.debug(`handleSpecificTranscript: Storing transcript ${speechId} in database for future reasoning`);
+        await otterService.storeTranscriptInDb(speechId, formattedContent);
+      }
+      
       // For very large transcripts, we'll send a summary response first, then the content separately
       // This prevents the full transcript from being included in the conversation history
       const MAX_CONTENT_LENGTH = 5000;
@@ -274,14 +299,14 @@ import {
         
         if (formattedContent.length > MAX_CONTENT_LENGTH) {
           const remainingChars = formattedContent.length - MAX_CONTENT_LENGTH;
-          const note = `\n\n*Note: This transcript is ${formattedContent.length} characters long. Only showing the first ${MAX_CONTENT_LENGTH} characters. ${remainingChars} characters were truncated.*`;
+          const note = `\n\n*Note: This transcript is ${formattedContent.length} characters long. Only showing the first ${MAX_CONTENT_LENGTH} characters. ${remainingChars} characters were truncated.*\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`;
           await callback({
             text: contentMessage + note,
             source: message.content.source,
           });
         } else {
           await callback({
-            text: contentMessage,
+            text: contentMessage + `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`,
             source: message.content.source,
           });
         }
@@ -291,6 +316,7 @@ import {
       } else {
         // For smaller transcripts, include the content in the main response
         response += `**Transcript Content**:\n\n${formattedContent}`;
+        response += `\n\nTo analyze this transcript, ask: "reason about transcript ${speechId}"`;
         
         logger.debug("handleSpecificTranscript: Sending response to user");
         await callback({
@@ -390,6 +416,143 @@ import {
       logger.error("Error fetching transcript listing:", error);
       await callback({
         text: `Error fetching transcripts: ${error.message}`,
+        source: message.content.source,
+      });
+      return false;
+    }
+  }
+  
+  async function handleTranscriptReasoning(
+    runtime: IAgentRuntime,
+    otterService: OtterService,
+    speechId: string,
+    message: Memory,
+    callback: HandlerCallback
+  ): Promise<boolean> {
+    try {
+      await callback({
+        text: `Analyzing transcript with ID: ${speechId}...`,
+        source: message.content.source,
+      });
+      
+      // First, check if we have the transcript in the database
+      let storedTranscript = await otterService.getTranscriptFromDb(speechId);
+      
+      // If not in database, fetch it and store it
+      if (!storedTranscript) {
+        logger.debug(`handleTranscriptReasoning: Transcript ${speechId} not found in database, fetching from API`);
+        
+        // Get the transcript details from the API
+        const transcript = await otterService.getTranscriptDetails(speechId);
+        
+        if (!transcript) {
+          await callback({
+            text: ERROR_MESSAGES.TRANSCRIPT_NOT_FOUND,
+            source: message.content.source,
+          });
+          return false;
+        }
+        
+        // Format the transcript content
+        let formattedContent = '';
+        
+        // First check if we have paragraphs in the transcript
+        if (transcript.transcript && transcript.transcript.paragraphs) {
+          if (transcript.transcript.paragraphs.length > 0) {
+            for (const paragraph of transcript.transcript.paragraphs) {
+              const speakerPrefix = paragraph.speaker_name ? `${paragraph.speaker_name}: ` : '';
+              formattedContent += `${speakerPrefix}${paragraph.text}\n\n`;
+            }
+          }
+        } 
+        // If no paragraphs, check if we have raw transcripts array
+        else if (transcript.transcripts && Array.isArray(transcript.transcripts) && transcript.transcripts.length > 0) {
+          // Group transcripts by speaker for better readability
+          let currentSpeaker = null;
+          let currentText = "";
+          
+          for (const t of transcript.transcripts) {
+            // If speaker changed or this is a new segment with significant time gap, start a new paragraph
+            if (t.speaker_id !== currentSpeaker || currentText.length === 0) {
+              // Add the previous paragraph if it exists
+              if (currentText.length > 0) {
+                const speakerPrefix = currentSpeaker ? `Speaker ${currentSpeaker}: ` : '';
+                formattedContent += `${speakerPrefix}${currentText}\n\n`;
+              }
+              
+              // Start a new paragraph
+              currentSpeaker = t.speaker_id;
+              currentText = t.transcript || "";
+            } else {
+              // Continue the current paragraph
+              currentText += " " + (t.transcript || "");
+            }
+          }
+          
+          // Add the last paragraph
+          if (currentText.length > 0) {
+            const speakerPrefix = currentSpeaker ? `Speaker ${currentSpeaker}: ` : '';
+            formattedContent += `${speakerPrefix}${currentText}\n\n`;
+          }
+        }
+        
+        // Store the transcript in the database
+        if (formattedContent.length > 0) {
+          const stored = await otterService.storeTranscriptInDb(speechId, formattedContent);
+          if (stored) {
+            logger.debug(`handleTranscriptReasoning: Successfully stored transcript ${speechId} in database`);
+            // Get the stored transcript
+            storedTranscript = await otterService.getTranscriptFromDb(speechId);
+          } else {
+            logger.error(`handleTranscriptReasoning: Failed to store transcript ${speechId} in database`);
+          }
+        }
+      }
+      
+      // If we have a stored transcript, use it for reasoning
+      if (storedTranscript) {
+        logger.debug(`handleTranscriptReasoning: Using stored transcript ${speechId} for reasoning`);
+        
+        // Prepare the response with metadata and content
+        let response = `## Analysis of Transcript: ${storedTranscript.title}\n\n`;
+        
+        // Add metadata
+        response += `**Date**: ${formatDate(storedTranscript.createdAt)}\n\n`;
+        
+        if (storedTranscript.summary) {
+          response += `**Summary**:\n${storedTranscript.summary}\n\n`;
+        }
+        
+        // Add the transcript content (up to a reasonable limit for the LLM)
+        const MAX_CONTENT_LENGTH = 50000; // Use a larger limit for reasoning
+        const contentToAnalyze = storedTranscript.content.length > MAX_CONTENT_LENGTH
+          ? storedTranscript.content.substring(0, MAX_CONTENT_LENGTH) + "..."
+          : storedTranscript.content;
+        
+        response += `**Transcript Content**:\n\n${contentToAnalyze}\n\n`;
+        
+        // Add a prompt for the LLM to analyze the transcript
+        response += `**Analysis**:\n\nBased on the transcript above, here are the key insights and takeaways:\n\n`;
+        
+        // Send the response
+        await callback({
+          text: response,
+          source: message.content.source,
+        });
+        
+        return true;
+      } else {
+        // If we still don't have a stored transcript, return an error
+        await callback({
+          text: `Unable to analyze transcript ${speechId}. The transcript could not be retrieved or processed.`,
+          source: message.content.source,
+        });
+        return false;
+      }
+    } catch (error) {
+      logger.error(`Error analyzing transcript ${speechId}:`, error);
+      await callback({
+        text: `Error analyzing transcript: ${error.message}`,
         source: message.content.source,
       });
       return false;

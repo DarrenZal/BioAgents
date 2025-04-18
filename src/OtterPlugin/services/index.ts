@@ -1,7 +1,10 @@
 // File: services/index.ts
 import { Service, IAgentRuntime, logger } from "@elizaos/core";
 import OtterApi from "./OtterApi";
+import TranscriptDbService, { StoredTranscript } from "./transcriptDbService";
 import { CACHE_KEYS } from "../constants";
+
+export { TranscriptDbService };
 
 export class OtterService extends Service {
   static serviceType = "otter";
@@ -45,6 +48,103 @@ export class OtterService extends Service {
   async stop() {
     logger.info("Stopping Otter.ai service instance");
     // No specific cleanup needed for API client
+  }
+  
+  /**
+   * Get or create the TranscriptDbService
+   */
+  private async getTranscriptDbService(): Promise<TranscriptDbService> {
+    // Check if the service exists
+    let dbService = this.runtime.getService<TranscriptDbService>(TranscriptDbService.serviceType);
+    
+    // If not, create it
+    if (!dbService) {
+      logger.debug("OtterService: TranscriptDbService not found, creating it");
+      dbService = await TranscriptDbService.start(this.runtime);
+      // Note: In a real implementation, we would register the service properly
+      // For now, we'll just use it directly
+    }
+    
+    return dbService;
+  }
+  
+  /**
+   * Store a transcript in the database
+   * @param speechId The ID of the speech/transcript to store
+   * @param formattedContent The formatted transcript content
+   */
+  async storeTranscriptInDb(speechId: string, formattedContent: string): Promise<boolean> {
+    try {
+      logger.debug(`OtterService.storeTranscriptInDb: Storing transcript ${speechId}`);
+      
+      // Get the transcript details
+      const transcript = await this.getTranscriptDetails(speechId);
+      
+      if (!transcript) {
+        logger.error(`OtterService.storeTranscriptInDb: Transcript ${speechId} not found`);
+        return false;
+      }
+      
+      // Get the TranscriptDbService
+      const dbService = await this.getTranscriptDbService();
+      
+      // Create a StoredTranscript object
+      const storedTranscript: StoredTranscript = {
+        id: `tr-${Date.now()}`,
+        speechId: speechId,
+        title: transcript.title || "Untitled",
+        content: formattedContent,
+        summary: transcript.summary || "",
+        createdAt: transcript.created_at,
+        updatedAt: new Date().toISOString(),
+        metadata: {
+          speech_outline: transcript.speech_outline,
+          word_clouds: transcript.word_clouds,
+          audio_url: transcript.audio_url
+        }
+      };
+      
+      // Store the transcript
+      const result = await dbService.storeTranscript(storedTranscript);
+      
+      if (result) {
+        logger.debug(`OtterService.storeTranscriptInDb: Successfully stored transcript ${speechId}`);
+      } else {
+        logger.error(`OtterService.storeTranscriptInDb: Failed to store transcript ${speechId}`);
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error(`OtterService.storeTranscriptInDb: Error storing transcript ${speechId}:`, error);
+      return false;
+    }
+  }
+  
+  /**
+   * Get a transcript from the database
+   * @param speechId The ID of the speech/transcript to retrieve
+   */
+  async getTranscriptFromDb(speechId: string): Promise<StoredTranscript | null> {
+    try {
+      logger.debug(`OtterService.getTranscriptFromDb: Retrieving transcript ${speechId}`);
+      
+      // Get the TranscriptDbService
+      const dbService = await this.getTranscriptDbService();
+      
+      // Get the transcript
+      const transcript = await dbService.getTranscript(speechId);
+      
+      if (!transcript) {
+        logger.debug(`OtterService.getTranscriptFromDb: Transcript ${speechId} not found in database`);
+        return null;
+      }
+      
+      logger.debug(`OtterService.getTranscriptFromDb: Successfully retrieved transcript ${speechId}`);
+      return transcript;
+    } catch (error) {
+      logger.error(`OtterService.getTranscriptFromDb: Error retrieving transcript ${speechId}:`, error);
+      return null;
+    }
   }
 
   /**

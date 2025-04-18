@@ -2,7 +2,7 @@
 import type { Plugin, IAgentRuntime } from "@elizaos/core";
 import { logger } from "@elizaos/core";
 import { fetchTranscripts, fetchMeetingSummary } from "././actions";
-import { OtterService } from "./services";
+import { OtterService, TranscriptDbService } from "./services";
 import { otterContextProvider } from "././providers";
 import { health } from "./routes";
 
@@ -27,7 +27,7 @@ export const otterPlugin: Plugin = {
   actions: [fetchTranscripts, fetchMeetingSummary],
   providers: [otterContextProvider],
   evaluators: [],
-  services: [OtterService],
+  services: [OtterService, TranscriptDbService],
   routes: [health],
 };
 
